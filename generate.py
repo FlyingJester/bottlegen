@@ -513,12 +513,60 @@ class MWriter(Writer):
         out.write(nl)
         out.write(":- interface." + nl + nl)
         out.write(":- import_module buffer." + nl + nl)
+        out.write(":- use_module io." + nl + nl)
         out.write(self.small_types)
         out.write(nl)
         out.write(self.int)
         out.write(nl)
         out.write(":- implementation." + nl + nl)
         out.write(":- import_module int." + nl + nl)
+        out.write(":- use_module string." + nl + nl)
+        out.write(":- pred float_to_bytes(float::in, int::out, int::out, int::out, int::out) is det." + nl)
+        out.write(":- pred bytes_to_float(float::out, int::in, int::in, int::in, int::in) is det." + nl)
+        out.write(":- pred int_to_bytes(int::in, int::out, int::out, int::out, int::out) is det." + nl)
+        out.write(":- pred bytes_to_int(int::out, int::in, int::in, int::in, int::in) is det." + nl)
+        out.write(':- pragma foreign_proc("C", float_to_bytes(In::in, O0::out, O1::out, O2::out, O3::out),' + nl)
+        out.write(tab + "[promise_pure, thread_safe, does_not_affect_liveness, will_not_call_mercury, will_not_throw_exception]," + nl)
+        out.write(tab + '"const float f=In;const unsigned char *const uc=(unsigned char*)&f;'+nl+tab)
+        i = 0
+        while i < 4:
+            si = str(i)
+            out.write("O" + si + "=uc[" + si + "];")
+            i += 1
+        out.write(tab + '").' + nl)
+
+        out.write(':- pragma foreign_proc("C", bytes_to_float(Out::out, I0::in, I1::in, I2::in, I3::in),' + nl)
+        out.write(tab + "[promise_pure, thread_safe, does_not_affect_liveness, will_not_call_mercury, will_not_throw_exception]," + nl)
+        out.write(tab + '"float f;unsigned char *const uc=(unsigned char*)&f;'+nl+tab)
+        i = 0
+        while i < 4:
+            si = str(i)
+            out.write("uc[" + si + "]=I" + si + ";")
+            i += 1
+        out.write(tab + "Out = f;" + nl)
+        out.write(tab + '").' + nl)
+        
+        out.write(':- pragma foreign_proc("C", int_to_bytes(In::in, O0::out, O1::out, O2::out, O3::out),' + nl)
+        out.write(tab + "[promise_pure, thread_safe, does_not_affect_liveness, will_not_call_mercury, will_not_throw_exception]," + nl)
+        out.write(tab + '"const int i=In;const unsigned char *const uc=(unsigned char*)&i;'+nl+tab)
+        i = 0
+        while i < 4:
+            si = str(i)
+            out.write("O" + si + "=uc[" + si + "];")
+            i += 1
+        out.write(tab + '").' + nl)
+
+        out.write(':- pragma foreign_proc("C", bytes_to_int(Out::out, I0::in, I1::in, I2::in, I3::in),' + nl)
+        out.write(tab + "[promise_pure, thread_safe, does_not_affect_liveness, will_not_call_mercury, will_not_throw_exception]," + nl)
+        out.write(tab + '"int i;unsigned char *const uc=(unsigned char*)&i;'+nl+tab)
+        i = 0
+        while i < 4:
+            si = str(i)
+            out.write("uc[" + si + "]=I" + si + ";")
+            i += 1
+        out.write(tab + "Out = i;" + nl)
+        out.write(tab + '").' + nl)
+
         out.write(self.imp)
         out.write(nl)
 
@@ -591,16 +639,21 @@ class MWriter(Writer):
     def writeBlock(self, block_name, block):
         # self.writeType(block_name, block)
         self.writeType(block_name, block)
-        pred = "read_" + block_name
-        self.int += "% " + pred + "(Buffer, !ByteIndex, Result)." + nl
+        read_pred = "read_" + block_name
+        write_pred = "write_" + block_name
+
+        self.int += ":- pred " + write_pred + "(" + block_name + "::in, io.io::di, io.io::uo) is det." + nl + nl
+        self.int += "% " + read_pred + "(Buffer, !ByteIndex, Result)." + nl
         if len(block) == 0:
-            self.int += ":- pred " + pred + "(buffer::in, int::in, int::out, " + block_name + "::out) is det." + nl + nl
-            self.imp += pred + "(_, !I, " + block_name + ")." + nl + nl
+            self.int += ":- pred " + read_pred + "(buffer::in, int::in, int::out, " + block_name + "::out) is det." + nl + nl
+            self.imp += read_pred + "(_, !I, " + block_name + ")." + nl + nl
+            self.imp += write_pred + "(_, !IO)." + nl + nl
             return
 
-        self.int += ":- pred " + pred + "(buffer::in, int::in, int::out, " + block_name + "::out) is semidet." + nl + nl
+        # Write reader
+        self.int += ":- pred " + read_pred + "(buffer::in, int::in, int::out, " + block_name + "::out) is semidet." + nl + nl
 
-        self.imp += pred + "(Buffer, I0, IOut, Out) :- " + nl
+        self.imp += read_pred + "(Buffer, I0, IOut, Out) :- " + nl
         # Get all the values...
         i = 1
         istr = "I0"
@@ -643,12 +696,10 @@ class MWriter(Writer):
                     self.writeEnumType(t)
                     self.imp += tab + "get_byte_32(Buffer, " + istr + ", Int" + istr + ")," + nl
                     self.imp += tab + "(" + nl
-                    first = True
                     n = 0
                     for e in self.enum_defs[t]:
-                        if not first:
+                        if n != 0:
                             self.imp += tab + ";" + nl
-                        first = False
                         self.imp += tab + tab + "Int" + istr + " = " + str(n) + "," + nl
                         self.imp += tab + tab + capitalize(key) + " = " + e + nl
                         n += 1
@@ -661,27 +712,81 @@ class MWriter(Writer):
                     istrnext = "I" + str(i)
         self.imp += tab + "IOut = " + istr + "," + nl
 
-        if len(block) == 0:
-            self.imp += tab + "Out = " + block_name + "." + nl + nl
-        else:
-            self.imp += tab + "Out = " + block_name + "("
+        self.imp += tab + "Out = " + block_name + "("
 
-            first = True
-            for key in block:
-                if not first:
-                    self.imp += ", "
-                first = False
-                if key == "children":
-                    self.imp += "Child"
-                else:
-                    self.imp += capitalize(key)
-            self.imp += ")." + nl + nl
-            
-            if "children" in block:
+        first = True
+        guts = ""
+        for key in block:
+            if not first:
+                guts += ", "
+            first = False
+            if key == "children":
+                guts += "Child"
+            else:
+                guts += capitalize(key)
+        self.imp += guts + ")." + nl + nl
+
+        # Write writer
+        self.imp += write_pred + "(" + block_name + "(" + guts + "), !IO) :-" + nl
+        for key in block:
+            if key == "children":
+                self.imp += tab + "(" + nl
+                n = 0
                 for child in block["children"]:
                     if child == "enum":
                         continue
-                    self.writeBlock(child, block["children"][child])
+                    if n != 0:
+                        self.imp += tab + ";" + nl
+                    self.imp += tab + tab + "Child = " + child + "(Child" + capitalize(child) + "), io.write_byte(" + str(n) + ", !IO)," + nl
+                    self.imp += tab + tab + "write_" + child + "(Child" + capitalize(child) + ", !IO)" + nl
+                    n += 1
+                self.imp += tab + ")," + nl
+            else:
+                ckey = capitalize(key)
+                var = self.getVariable(key, block[key])
+                t = var["type"]
+                if t == "string":
+                    self.imp += tab + "io.write_byte(string.length(" + ckey + "), !IO)," + nl
+                    self.imp += tab + "io.write_string(" + ckey + ", !IO)," + nl
+                elif t == "float" or t == "int":
+                    if t == "float":
+                        self.imp += tab + "float_to_bytes(" + ckey
+                    elif t == "int":
+                        self.imp += tab + "int_to_bytes(" + ckey
+                    else:
+                        print ("INTERNAL ERROR: Invalid type " + t)
+                        quit()
+                    i = 0
+                    while i < 4:
+                        self.imp += ","+ckey+str(i)
+                        i += 1
+                    self.imp += ")," + nl
+                    i = 0
+                    while i < 4:
+                        self.imp += tab + "io.write_byte(" + ckey + str(i) + ", !IO)," + nl
+                        i += 1
+                    pass
+                elif t in self.enums:
+                    self.imp += tab + "(" + nl
+                    n = 0
+                    for e in self.enum_defs[t]:
+                        if n != 0:
+                            self.imp += tab + ";" + nl
+                        self.imp += tab + tab + ckey + " = " + e + ", io.write_byte(" + str(n) + ", !IO)" + nl
+                        n += 1
+                    self.imp += tab + ")," + nl
+                else:
+                    print ("INTERNAL ERROR: Invalid type " + t)
+                    quit()
+        self.imp += tab + "true." + nl + nl
+
+        if "children" in block:
+            for child in block["children"]:
+                if child == "enum":
+                    continue
+                self.writeBlock(child, block["children"][child])
+
+# Generation functions and main
 
 def help():
     if len(sys.argv) == 0:
