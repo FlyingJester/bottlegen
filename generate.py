@@ -498,6 +498,8 @@ class MWriter(Writer):
         self.int = ""
         self.imp = ""
         self.small_types = ""
+        self.foreign_exports = []
+        self.converts = []
         self.enum_defs = {}
         self.written_types = []
 
@@ -517,6 +519,19 @@ class MWriter(Writer):
         out.write(self.small_types)
         out.write(nl)
         out.write(self.int)
+        out.write(nl)
+        for convert in self.converts:
+            name = convert["name"] + "_" + convert["child"]
+            out.write(":- pred " + name)
+            out.write("(" + convert["name"] + "_data, " + convert["child"] + ").")
+            out.write(nl)
+            out.write(":- mode " + name)
+            out.write("(in, out) is semidet.")
+            out.write(nl)
+            out.write(":- mode " + name)
+            out.write("(out, in) is det.")
+            out.write(nl)
+            out.write(nl)
         out.write(nl)
         out.write(":- implementation." + nl + nl)
         out.write(":- import_module int." + nl + nl)
@@ -565,8 +580,25 @@ class MWriter(Writer):
             out.write("uc[" + si + "]=I" + si + ";")
             i += 1
         out.write(tab + "Out = i;" + nl)
-        out.write(tab + '").' + nl)
-
+        out.write(tab + '").' + nl + nl)
+        
+        for foreign_export in self.foreign_exports:
+            out.write(foreign_export)
+            out.write(nl)
+        
+        for convert in self.converts:
+            name = convert["name"]
+            child = convert["child"]
+            out.write(name + "_type(" + child + "(_)) = " + child + "." + nl)
+            predname = name + "_" + child
+            out.write(predname + "(" + child + "(That), That)." + nl)
+            out.write(':- pragma foreign_export("C", ')
+            out.write(predname + '(in, out), "Get' + capitalize(predname) + '").' + nl)
+            out.write(':- pragma foreign_export("C", ')
+            out.write(predname + '(out, in), "Create' + capitalize(predname) + '").' + nl)
+            out.write(nl)
+        out.write(nl)
+        
         out.write(self.imp)
         out.write(nl)
 
@@ -578,12 +610,8 @@ class MWriter(Writer):
         self.enums.append(enum_name)
         self.enum_defs.update({enum_name:enumeration})
         self.written_enums = []
-
-    def writeEnumType(self, enum_name):
-        if enum_name in self.written_enums:
-            return
-        self.written_enums.append(enum_name)
-        enumeration = self.enum_defs[enum_name]
+    
+    def writeArityZeroEnum(self, enum_name, enumeration):
         self.small_types += ":- type " + enum_name + " ---> "
         l = len(enumeration)
         if l == 0:
@@ -592,10 +620,26 @@ class MWriter(Writer):
             self.small_types += enumeration[0] + "." + nl + nl
         else:
             self.small_types += nl
+            foreign_export = ':- pragma foreign_decl("C",'+nl
+            foreign_enum = ':- pragma foreign_enum("C",'+enum_name+'/0,['+nl
+            foreign_export += tab + '"enum Enum' + capitalize(enum_name) + "Type{" + nl
             for e in enumeration[:-1]:
                 self.small_types += tab + e + " ;" + nl
+                foreign_export += tab + "e" + capitalize(e) + "," + nl
+                foreign_enum += tab + e + ' - "e' + capitalize(e) + '",' + nl
             self.small_types += tab + enumeration[-1] + "." + nl + nl
-    
+            e = capitalize(enumeration[-1])
+            foreign_export += tab + "e" + e + nl + '};").' + nl
+            foreign_enum += tab + enumeration[-1] + ' - "e' + e + '"]).' + nl
+            self.foreign_exports += [foreign_export, foreign_enum]
+
+    def writeEnumType(self, enum_name):
+        if enum_name in self.written_enums:
+            return
+        self.written_enums.append(enum_name)
+        enumeration = self.enum_defs[enum_name]
+        self.writeArityZeroEnum(enum_name, enumeration)
+        
     def writeType(self, name, block):
         if name in self.written_types:
             return
@@ -607,6 +651,10 @@ class MWriter(Writer):
                     self.small_types += ":- type " + child + "." + nl
             self.small_types += ":- type " + name + "_data --->"
             first = True
+            children_names = []
+            self.int += ":- func " + name + "_type(" + name + "_data) = " + name + "_type." + nl
+            self.foreign_exports.append(
+                ':- pragma foreign_export("C", ' + name + '_type(in) = (out), "' + capitalize(self.src_name)+'_Get'+capitalize(name) + 'Type").' + nl)
             for child in block["children"]:
                 if child == "enum":
                     continue
@@ -615,26 +663,54 @@ class MWriter(Writer):
                 first = False
                 self.small_types += nl
                 self.small_types += tab + child + "(" + child + ")"
+                self.converts.append({"name":name, "child":child})
+                children_names.append(child)
             self.small_types += "." + nl
+            self.writeArityZeroEnum(name + "_type", children_names)
         
         if len(block) == 0:
             self.small_types += ":- type " + name + " ---> " + name + "." + nl + nl
         else:
             self.small_types += ":- type " + name + " ---> " + name + "("
-
+            self.int += ":- pred examine_" + name + "("
+            args = ""
+            sig = ""
+            n = 0
             first = True
             for key in block:
                 if key == "enum":
                     continue
                 if not first:
-                    self.small_types += ", "
+                    sig += ", "
+                    args += ", "
                 first = False
                 if key == "children":
-                    self.small_types += name + "_data"
+                    sig += name + "_data"
+                    args += capitalize(name)+"Data" + str(n)
                 else:
                     var = self.getVariable(key, block[key])
-                    self.small_types += var["type"]
-            self.small_types += ")." + nl + nl
+                    sig += var["type"]
+                    args += capitalize(var["type"]) + str(n)
+                n += 1
+            self.small_types += sig + ")." + nl + nl
+            self.int += sig + ", " + name + ")." + nl
+            examine_body = "examine_" + name + "("
+            examine_body += args +", " + name + "(" + args + "))." + nl
+            foreign_export_create =  ':- pragma foreign_export("C", examine_' + name + '('
+            foreign_export_get = foreign_export_create
+            imode = ""
+            omode = ""
+            while n > 1:
+                n -= 1
+                imode += "in,"
+                omode += "out,"
+            imode += "in,out"
+            omode += "out,in"
+            self.int += ":- mode examine_" + name + "(" + imode + ") is det." + nl
+            self.int += ":- mode examine_" + name + "(" + omode + ") is det." + nl
+            foreign_export_create += imode +'), "' + capitalize(self.src_name) + "_Create" + capitalize(name) + '").' + nl
+            foreign_export_get += omode +'), "' + capitalize(self.src_name) + "_Get" + capitalize(name) + '").' + nl
+            self.foreign_exports += [examine_body, foreign_export_create, foreign_export_get]            
     
     def writeBlock(self, block_name, block):
         # self.writeType(block_name, block)
