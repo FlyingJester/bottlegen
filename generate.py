@@ -534,8 +534,23 @@ class MWriter(Writer):
             out.write(nl)
         out.write(nl)
         out.write(":- implementation." + nl + nl)
-        out.write(":- import_module int." + nl + nl)
-        out.write(":- use_module string." + nl + nl)
+        out.write(":- import_module int." + nl)
+        out.write(":- use_module string." + nl)
+        out.write(":- use_module list." + nl)
+        out.write(":- use_module char." + nl)
+        out.write("""
+
+:- pred write_string(string::in, int::in, int::in, io.io::di, io.io::uo) is det.
+write_string(Str, I, N, !IO) :-
+    ( I = N ->
+        true
+    ;
+        string.det_index(Str, I, Ch),
+        char.to_int(Ch, CodePoint),
+        io.write_byte(CodePoint, !IO),
+        write_string(Str, I + 1, N, !IO)
+    ).
+""")
         out.write(":- pred float_to_bytes(float::in, int::out, int::out, int::out, int::out) is det." + nl)
         out.write(":- pred bytes_to_float(float::out, int::in, int::in, int::in, int::in) is det." + nl)
         out.write(":- pred int_to_bytes(int::in, int::out, int::out, int::out, int::out) is det." + nl)
@@ -593,9 +608,11 @@ class MWriter(Writer):
             predname = name + "_" + child
             out.write(predname + "(" + child + "(That), That)." + nl)
             out.write(':- pragma foreign_export("C", ')
-            out.write(predname + '(in, out), "Get' + capitalize(predname) + '").' + nl)
+            out.write(predname + '(in, out), ')
+            out.write('"' + capitalize(self.src_name) + '_Get' + capitalize(predname) + '").' + nl)
             out.write(':- pragma foreign_export("C", ')
-            out.write(predname + '(out, in), "Create' + capitalize(predname) + '").' + nl)
+            out.write(predname + '(out, in), ')
+            out.write('"' + capitalize(self.src_name) + '_Create' + capitalize(predname) + '").' + nl)
             out.write(nl)
         out.write(nl)
         
@@ -822,8 +839,9 @@ class MWriter(Writer):
                 var = self.getVariable(key, block[key])
                 t = var["type"]
                 if t == "string":
-                    self.imp += tab + "io.write_byte(string.length(" + ckey + "), !IO)," + nl
-                    self.imp += tab + "io.write_string(" + ckey + ", !IO)," + nl
+                    self.imp += tab + "string.length(" + ckey + ") = 0+Len" + ckey + "," + nl
+                    self.imp += tab + "io.write_byte(Len" + ckey + ", !IO)," + nl
+                    self.imp += tab + "write_string(" + ckey + ", 0, Len" + ckey + ", !IO)," + nl
                 elif t == "float" or t == "int":
                     if t == "float":
                         self.imp += tab + "float_to_bytes(" + ckey
