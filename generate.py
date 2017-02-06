@@ -772,9 +772,9 @@ write_string(Str, I, N, !IO) :-
                     n += 1
                 self.imp += tab + ")," + nl
 
+                i += 1
                 istr = istrnext
                 istrnext = "I" + str(i)
-                i += 1
             else:
                 var = self.getVariable(key, block[key])
                 t = var["type"]
