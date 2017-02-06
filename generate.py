@@ -134,14 +134,6 @@ class Writer:
                 output["attr"]["len"] = variable_body["len"]
         else:
             print type(variable_body)
-        
-        if not ((output["type"] in TYPES) or (output["type"] in self.enums)):
-            print ("Invalid type " + output["type"])
-            err = "Type must be"
-            for t in TYPES:
-                err += " " + t
-            print (err + " or an enum")
-            quit()
         return output
 
 # JSON Writer, outputs an equivalent JSON file as its input
@@ -175,11 +167,12 @@ class JSONWriter(Writer):
             self.output.write(',')
         self.quote(enum_name, ":[")
         if len(enumeration) > 0:
+            values = sorted(enumerations)
             self.output.write(nl + tab + tab + tab)
-            for e in enumeration[:-1]:
+            for e in values[:-1]:
                 self.quote(e, ',' + nl)
                 self.output.write(tab + tab + tab)
-            self.quote(enumeration[-1])
+            self.quote(values[-1])
             self.output.write(nl + tab + tab)
         
         self.output.write("]" + nl)
@@ -217,7 +210,9 @@ class JSONWriter(Writer):
         l = len(children)
         i = 0
         
-        for key in children:
+        keys = children.keys()
+        keys.sort()
+        for key in keys:
             i += 1
             if key == "enum":
                 continue
@@ -234,7 +229,9 @@ class JSONWriter(Writer):
         self.quote(block_name, ':{' + nl)
         l = len(block)
         i = 0
-        for key in block:
+        keys = block.keys()
+        keys.sort()
+        for key in keys:
             i += 1
             if key == "children":
                 self.writeChildren(block["children"], tabs + 1)
@@ -304,7 +301,9 @@ class CWriter(Writer):
         for p in parents:
             self.c.write(p + ".")
         self.c.write(enum_name_u + "){" + nl)
-        for key in children:
+        keys = children.keys()
+        keys.sort()
+        for key in keys:
             if key == "enum":
                 continue
             self.c.write(tabn + "if(feof(from) != 0) return BOTTLE_FAIL;" + nl)
@@ -319,7 +318,9 @@ class CWriter(Writer):
     def writeFileReader(self, block_name, block, tabs = 1, parents = []):
         cap_name = capitalize(block_name)
         tabn = calcTabs(tabs)
-        for key in block:
+        keys = block.keys()
+        keys.sort()
+        for key in keys:
             if key == "children":
                 continue
             self.c.write(tabn + "if(feof(from) != 0) return BOTTLE_FAIL;" + nl)
@@ -359,7 +360,9 @@ class CWriter(Writer):
         for p in parents:
             self.c.write(p + ".")
         self.c.write(enum_name_u + "){" + nl)
-        for key in children:
+        keys = children.keys()
+        keys.sort()
+        for key in keys:
             if key == "enum":
                 continue
             self.c.write(tabn + tab + "case e" + capitalize(key) + ":" + nl)
@@ -373,7 +376,9 @@ class CWriter(Writer):
     def writeFileWriter(self, block_name, block, tabs = 1, parents = []):
         cap_name = capitalize(block_name)
         tabn = calcTabs(tabs)
-        for key in block:
+        keys = block.keys()
+        keys.sort()
+        for key in keys:
             if key == "children":
                 continue
             var = self.getVariable(key, block[key])
@@ -405,7 +410,8 @@ class CWriter(Writer):
             self.h.write("typedef unsigned " + enum_name + ";" + nl)
         else:
             self.h.write("enum " + enum_name + "{" + nl)
-            for e in enumeration:
+            values = sorted(enumeration)
+            for e in values:
                 self.h.write(tab + "e" + capitalize(str(e)) +"," + nl)
             self.h.write(tab + "NUM_" + capitalize(enum_name_l) + nl + "};" + nl)
     
@@ -416,8 +422,9 @@ class CWriter(Writer):
         enum_name = "EnumBottle" + enum_name_u
         self.h.write(tabn0 + "enum " + enum_name + " " + enum_name_u + ";" + nl)
         self.h.write(tabn0 + "union{" + nl)
-
-        for key in children:
+        keys = children.keys()
+        keys.sort()
+        for key in keys:
             if key == "enum":
                 continue
             child = children[key]
@@ -468,7 +475,9 @@ class CWriter(Writer):
 
             self.h.write("struct Bottle" + cap_name + " { " + nl)
 
-        for key in block:
+        keys = children.keys()
+        keys.sort()
+        for key in keys:
             if key == "children":
                 continue
             var = self.getVariable(key, block[key])
@@ -636,18 +645,19 @@ write_string(Str, I, N, !IO) :-
         elif l == 1:
             self.small_types += enumeration[0] + "." + nl + nl
         else:
+            values = sorted(enumeration)
             self.small_types += nl
             foreign_export = ':- pragma foreign_decl("C",'+nl
             foreign_enum = ':- pragma foreign_enum("C",'+enum_name+'/0,['+nl
             foreign_export += tab + '"enum Enum' + capitalize(enum_name) + "Type{" + nl
-            for e in enumeration[:-1]:
+            for e in values[:-1]:
                 self.small_types += tab + e + " ;" + nl
                 foreign_export += tab + "e" + capitalize(e) + "," + nl
                 foreign_enum += tab + e + ' - "e' + capitalize(e) + '",' + nl
-            self.small_types += tab + enumeration[-1] + "." + nl + nl
-            e = capitalize(enumeration[-1])
+            self.small_types += tab + values[-1] + "." + nl + nl
+            e = capitalize(values[-1])
             foreign_export += tab + "e" + e + nl + '};").' + nl
-            foreign_enum += tab + enumeration[-1] + ' - "e' + e + '"]).' + nl
+            foreign_enum += tab + values[-1] + ' - "e' + e + '"]).' + nl
             self.foreign_exports += [foreign_export, foreign_enum]
 
     def writeEnumType(self, enum_name):
@@ -663,7 +673,9 @@ write_string(Str, I, N, !IO) :-
         self.written_types.append(name)
         
         if "children" in block:
-            for child in block["children"]:
+            child_keys = block["children"].keys()
+            child_keys.sort()
+            for child in child_keys:
                 if child != "enum":
                     self.small_types += ":- type " + child + "." + nl
             self.small_types += ":- type " + name + "_data --->"
@@ -672,7 +684,7 @@ write_string(Str, I, N, !IO) :-
             self.int += ":- func " + name + "_type(" + name + "_data) = " + name + "_type." + nl
             self.foreign_exports.append(
                 ':- pragma foreign_export("C", ' + name + '_type(in) = (out), "' + capitalize(self.src_name)+'_Get'+capitalize(name) + 'Type").' + nl)
-            for child in block["children"]:
+            for child in child_keys:
                 if child == "enum":
                     continue
                 if not first:
@@ -694,7 +706,9 @@ write_string(Str, I, N, !IO) :-
             sig = ""
             n = 0
             first = True
-            for key in block:
+            keys = block.keys()
+            keys.sort()
+            for key in keys:
                 if key == "enum":
                     continue
                 if not first:
@@ -752,13 +766,17 @@ write_string(Str, I, N, !IO) :-
         istr = "I0"
         istrnext = "I1"
         size = 0
-        for key in block:
+        keys = block.keys()
+        keys.sort()
+        for key in keys:
             if key == "children":
                 self.imp += tab + "get_8(Buffer, " + istr + ", Byte" + istr + ")," + nl
                 self.imp += tab + "(" + nl
                 first = True
                 n = 0
-                for child in block["children"]:
+                child_keys = block["children"].keys()
+                child_keys.sort()
+                for child in child_keys:
                     if child == "enum":
                         continue
 
@@ -787,7 +805,7 @@ write_string(Str, I, N, !IO) :-
                     istrnext = "I" + str(i)
                 elif t in self.enums:
                     self.writeEnumType(t)
-                    self.imp += tab + "get_byte_32(Buffer, " + istr + ", Int" + istr + ")," + nl
+                    self.imp += tab + "get_byte_8(Buffer, " + istr + ", Int" + istr + ")," + nl
                     self.imp += tab + "(" + nl
                     n = 0
                     for e in self.enum_defs[t]:
@@ -797,9 +815,19 @@ write_string(Str, I, N, !IO) :-
                         self.imp += tab + tab + capitalize(key) + " = " + e + nl
                         n += 1
                     self.imp += tab + ")," + nl
+                    self.imp += tab + istrnext + " - 1 = " + istr + "," + nl
+                    i += 1
+                    istr = istrnext
+                    istrnext = "I" + str(i)
                 else:
-                    self.imp += tab + "get_byte_32(Buffer, "+istr+", "+capitalize(key) + ")," + nl
-                    self.imp += tab + istrnext + " - 4 = " + istr + "," + nl
+                    if t == "int":
+                        self.imp += tab + "get_byte_32(Buffer, "+istr+", "+capitalize(key) + ")," + nl
+                        self.imp += tab + istrnext + " - 4 = " + istr + "," + nl
+                    elif t == "float":
+                        self.imp += tab + "get_byte_float(Buffer, "+istr+", "+capitalize(key) + ")," + nl
+                        self.imp += tab + istrnext + " - 4 = " + istr + "," + nl
+                    else:
+                        self.imp += tab + "read_" + t + "(Buffer, " + istr + ", " + istrnext + ", " + capitalize(key) + ")," + nl
                     i += 1
                     istr = istrnext
                     istrnext = "I" + str(i)
@@ -809,7 +837,7 @@ write_string(Str, I, N, !IO) :-
 
         first = True
         guts = ""
-        for key in block:
+        for key in keys:
             if not first:
                 guts += ", "
             first = False
@@ -821,11 +849,13 @@ write_string(Str, I, N, !IO) :-
 
         # Write writer
         self.imp += write_pred + "(" + block_name + "(" + guts + "), !IO) :-" + nl
-        for key in block:
+        for key in keys:
             if key == "children":
                 self.imp += tab + "(" + nl
                 n = 0
-                for child in block["children"]:
+                child_keys = block["children"].keys()
+                child_keys.sort()
+                for child in child_keys:
                     if child == "enum":
                         continue
                     if n != 0:
@@ -870,12 +900,13 @@ write_string(Str, I, N, !IO) :-
                         n += 1
                     self.imp += tab + ")," + nl
                 else:
-                    print ("INTERNAL ERROR: Invalid type " + t)
-                    quit()
+                    self.imp += tab + "write_" + t + "(" + ckey + ", !IO)," + nl
         self.imp += tab + "true." + nl + nl
 
         if "children" in block:
-            for child in block["children"]:
+            child_keys = block["children"].keys()
+            child_keys.sort()
+            for child in child_keys:
                 if child == "enum":
                     continue
                 self.writeBlock(child, block["children"][child])
